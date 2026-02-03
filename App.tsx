@@ -16,7 +16,7 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
-  const [error, setError] = useState<string | null>(isSupabaseConfigured ? null : "Configurações do Supabase ausentes.");
+  const [error, setError] = useState<string | null>(isSupabaseConfigured ? null : "Configuração do banco de dados não encontrada.");
 
   const [formData, setFormData] = useState<Omit<Expense, 'id'>>({
     date: new Date().toISOString().split('T')[0],
@@ -34,7 +34,6 @@ const App: React.FC = () => {
     }
 
     setLoading(true);
-    setError(null);
     try {
       const { data, error: sbError } = await supabase
         .from('expenses')
@@ -43,9 +42,10 @@ const App: React.FC = () => {
       
       if (sbError) throw sbError;
       if (data) setExpenses(data);
+      setError(null);
     } catch (err: any) {
-      console.error("Erro ao carregar:", err);
-      setError(err.message || "Erro de conexão com o banco");
+      console.error("Erro crítico ao carregar dados:", err);
+      setError(`Erro de conexão: ${err.message || "Verifique sua conexão com a internet."}`);
     } finally {
       setLoading(false);
     }
@@ -67,10 +67,8 @@ const App: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSupabaseConfigured) {
-      alert("Supabase não configurado.");
-      return;
-    }
+    if (!isSupabaseConfigured) return;
+
     try {
       if (editingExpense) {
         const { error: err } = await supabase.from('expenses').update(formData).eq('id', editingExpense.id);
@@ -82,41 +80,52 @@ const App: React.FC = () => {
       await fetchExpenses();
       setIsModalOpen(false);
       setEditingExpense(null);
-    } catch (err) {
-      alert("Erro ao salvar. Verifique as configurações e políticas RLS do Supabase.");
+    } catch (err: any) {
+      alert(`Erro ao salvar: ${err.message}`);
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!isSupabaseConfigured) return;
-    if (!window.confirm('Excluir permanentemente?')) return;
+    if (!window.confirm('Excluir este lançamento?')) return;
     try {
       const { error: err } = await supabase.from('expenses').delete().eq('id', id);
       if (err) throw err;
       setExpenses(prev => prev.filter(e => e.id !== id));
-    } catch (err) {
-      alert("Erro ao excluir.");
+    } catch (err: any) {
+      alert(`Erro ao excluir: ${err.message}`);
     }
   };
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 text-center">
+        <div className="max-w-md bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+          <AlertCircle size={48} className="mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-black text-slate-800 mb-2">Ops! Algo deu errado</h2>
+          <p className="text-sm text-slate-500 mb-6">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full py-3 bg-indigo-600 text-white font-black rounded-xl uppercase tracking-widest text-[10px]"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-xs font-black uppercase tracking-widest text-indigo-600">Sincronizando Dados...</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Sincronizando Nuvem...</p>
       </div>
     );
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-      {!isSupabaseConfigured && (
-        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center gap-3 text-amber-800 text-xs font-bold">
-          <AlertCircle size={18} />
-          <p>Aviso: Supabase não configurado. Adicione VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY nas variáveis de ambiente do seu deploy.</p>
-        </div>
-      )}
-
       <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg">
@@ -188,7 +197,7 @@ const App: React.FC = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
              <form onSubmit={handleSubmit} className="p-8 space-y-6">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-black uppercase tracking-widest text-slate-400 text-[10px]">Dados do Lançamento</h3>
@@ -201,7 +210,7 @@ const App: React.FC = () => {
                     type="number" step="0.01" required autoFocus
                     value={formData.amount || ''} 
                     onChange={e => setFormData(p => ({...p, amount: parseFloat(e.target.value)}))}
-                    className="w-full text-4xl font-black text-indigo-600 outline-none border-b-2 border-slate-100 focus:border-indigo-600 py-2 transition-colors"
+                    className="w-full text-4xl font-black text-indigo-600 outline-none border-b-2 border-slate-100 focus:border-indigo-600 py-2 transition-colors bg-transparent"
                     placeholder="0,00"
                   />
                 </div>
@@ -238,7 +247,7 @@ const App: React.FC = () => {
                 </div>
 
                 <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
-                  {editingExpense ? 'Atualizar' : 'Salvar na Nuvem'}
+                  {editingExpense ? 'Atualizar Dados' : 'Salvar na Nuvem'}
                 </button>
              </form>
           </div>
