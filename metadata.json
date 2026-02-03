@@ -1,0 +1,7 @@
+{
+  "name": "Gestor de Finanças Pessoais Mensal Pro",
+  "description": "Uma solução completa e profissional para gestão de despesas mensais, com calendário interativo, captura de recibos, relatórios detalhados e backup em JSON.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
