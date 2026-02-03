@@ -3,26 +3,31 @@ import {
   Plus, 
   Trash2, 
   Edit2, 
-  Download, 
-  Upload, 
   Camera, 
-  Printer, 
-  FileText,
   X, 
   ExternalLink,
   CreditCard,
   Cloud,
-  RefreshCw,
   Settings,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Link as LinkIcon,
-  Image as ImageIcon
+  Download,
+  Upload,
+  FileJson,
+  Database
 } from 'lucide-react';
 import { Expense, Category, CloudSettings } from './types';
 import { CATEGORIES, MONTHS, STORAGE_KEY } from './constants';
-import { generateId, formatCurrency, toBase64, saveToGithub, loadFromGithub, exportToCSV } from './utils';
+import { 
+  generateId, 
+  formatCurrency, 
+  toBase64, 
+  saveToGithub, 
+  exportToJSON, 
+  importFromJSON 
+} from './utils';
 import Calendar from './components/Calendar';
 import CategorySummary from './components/CategorySummary';
 
@@ -35,8 +40,8 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [isReadOnly, setIsReadOnly] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
 
   const [cloudSettings, setCloudSettings] = useState<CloudSettings>({
     githubToken: '',
@@ -54,34 +59,35 @@ const App: React.FC = () => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonImportRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const savedCloud = localStorage.getItem(CLOUD_STORAGE_KEY);
-    if (savedCloud) setCloudSettings(JSON.parse(savedCloud));
-    loadLocalData();
+    try {
+      const savedCloud = localStorage.getItem(CLOUD_STORAGE_KEY);
+      if (savedCloud) setCloudSettings(JSON.parse(savedCloud));
+      
+      const savedExpenses = localStorage.getItem(STORAGE_KEY);
+      if (savedExpenses) {
+        setExpenses(JSON.parse(savedExpenses));
+      }
+    } catch (e) {
+      console.error("Erro no carregamento:", e);
+    } finally {
+      setIsInitialLoadDone(true);
+    }
   }, []);
 
-  const loadLocalData = () => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setExpenses(JSON.parse(saved));
-      } catch (e) {
-        console.error("Erro LocalStorage", e);
-      }
-    }
-  };
-
   useEffect(() => {
-    if (!isReadOnly) {
+    if (isInitialLoadDone) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
     }
-  }, [expenses, isReadOnly]);
+  }, [expenses, isInitialLoadDone]);
 
   const filteredExpenses = useMemo(() => {
     return expenses
       .filter(e => {
-        const d = new Date(e.date + 'T00:00:00');
+        if (!e.date) return false;
+        const d = new Date(e.date + 'T12:00:00');
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -99,7 +105,7 @@ const App: React.FC = () => {
       const newSettings = { ...cloudSettings, lastSync: now };
       setCloudSettings(newSettings);
       localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(newSettings));
-      alert("Nuvem atualizada!");
+      alert("Sincronizado com o GitHub!");
     } catch (err) {
       alert("Erro na sincronização.");
     } finally {
@@ -107,27 +113,29 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCloudLoad = async () => {
-    if (!cloudSettings.githubToken || !cloudSettings.gistId) {
-      setIsCloudModalOpen(true);
-      return;
+  const handleExportJSON = () => {
+    exportToJSON(expenses);
+  };
+
+  const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (window.confirm("Isso substituirá todos os dados atuais. Deseja continuar?")) {
+        try {
+          const imported = await importFromJSON(file);
+          setExpenses(imported);
+          alert("Dados importados com sucesso!");
+          setIsCloudModalOpen(false);
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Erro ao importar.");
+        }
+      }
     }
-    if (!window.confirm("Substituir dados locais pelos da nuvem?")) return;
-    
-    setIsSyncing(true);
-    try {
-      const cloudData = await loadFromGithub(cloudSettings);
-      setExpenses(cloudData);
-      alert("Dados recuperados!");
-    } catch (err) {
-      alert("Erro ao carregar.");
-    } finally {
-      setIsSyncing(false);
-    }
+    // Limpar o input para permitir importar o mesmo arquivo novamente
+    if (e.target) e.target.value = '';
   };
 
   const handleOpenAddModal = (dateStr?: string) => {
-    if (isReadOnly) return;
     setEditingExpense(null);
     setFormData({
       date: dateStr || new Date().toISOString().split('T')[0],
@@ -141,15 +149,13 @@ const App: React.FC = () => {
   };
 
   const handleEdit = (expense: Expense) => {
-    if (isReadOnly) return;
     setEditingExpense(expense);
     setFormData({ ...expense });
     setIsModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
-    if (isReadOnly) return;
-    if (window.confirm('Excluir lançamento?')) {
+    if (window.confirm('Excluir este lançamento?')) {
       setExpenses(prev => prev.filter(e => e.id !== id));
     }
   };
@@ -170,21 +176,22 @@ const App: React.FC = () => {
       try {
         const base64 = await toBase64(file);
         setFormData(prev => ({ ...prev, receiptImage: base64 }));
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        alert("Erro ao processar imagem.");
+      }
     }
   };
 
-  const changeMonth = (offset: number) => {
-    let newMonth = selectedMonth + offset;
-    let newYear = selectedYear;
-    if (newMonth > 11) { newMonth = 0; newYear++; }
-    if (newMonth < 0) { newMonth = 11; newYear--; }
-    setSelectedMonth(newMonth);
-    setSelectedYear(newYear);
-  };
+  if (!isInitialLoadDone) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white text-indigo-600 font-black text-xl">
+        INICIANDO GESTOR PRO...
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 pb-32 lg:pb-8">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
       {/* Header */}
       <header className="no-print bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
@@ -192,101 +199,65 @@ const App: React.FC = () => {
             <CreditCard size={28} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-slate-800 tracking-tight">Finanças Pro</h1>
-              {cloudSettings.gistId && <CheckCircle2 size={16} className="text-emerald-500" />}
-            </div>
-            <p className={`text-[10px] font-black uppercase tracking-widest ${cloudSettings.lastSync ? 'text-emerald-500' : 'text-amber-500'}`}>
-              {cloudSettings.lastSync ? `Sync: ${cloudSettings.lastSync.split(',')[1]}` : '● Armazenamento Local (Privado)'}
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">Finanças Pro</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {cloudSettings.lastSync ? `Sincronizado: ${cloudSettings.lastSync}` : '● Armazenamento Local'}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center bg-slate-100 rounded-xl p-1.5 border border-slate-200">
-            <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-500"><ChevronLeft size={18} /></button>
-            <div className="px-4 text-sm font-black text-slate-700 min-w-[140px] text-center">
-              {MONTHS[selectedMonth].label} {selectedYear}
-            </div>
-            <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-500"><ChevronRight size={18} /></button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center bg-slate-100 rounded-xl p-1">
+            <button onClick={() => setSelectedMonth(prev => prev === 0 ? 11 : prev - 1)} className="p-2 hover:bg-white rounded-lg transition-all"><ChevronLeft size={18} /></button>
+            <span className="px-4 text-sm font-black text-slate-700 min-w-[140px] text-center uppercase tracking-tighter">{MONTHS[selectedMonth].label} {selectedYear}</span>
+            <button onClick={() => setSelectedMonth(prev => prev === 11 ? 0 : prev + 1)} className="p-2 hover:bg-white rounded-lg transition-all"><ChevronRight size={18} /></button>
           </div>
-
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => exportToCSV(filteredExpenses)} className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl shadow-sm transition-all" title="Exportar CSV">
-              <FileText size={20} />
-            </button>
-            <button onClick={() => window.print()} className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl shadow-sm transition-all" title="Imprimir">
-              <Printer size={20} />
-            </button>
-            <div className="w-px h-6 bg-slate-200 mx-1" />
-            <button 
-              onClick={handleCloudSave} 
-              disabled={isSyncing}
-              className={`p-2.5 rounded-xl transition-all ${isSyncing ? 'bg-slate-50 text-slate-300' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
-              title="Sincronizar Nuvem"
-            >
-              <Cloud size={20} className={isSyncing ? 'animate-pulse' : ''} />
-            </button>
-            <button onClick={() => setIsCloudModalOpen(true)} className="p-2.5 text-slate-400 hover:text-slate-600 rounded-xl transition-all">
-              <Settings size={20} />
-            </button>
-          </div>
+          <button onClick={handleCloudSave} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all" title="Sincronizar GitHub"><Cloud size={20} /></button>
+          <button onClick={() => setIsCloudModalOpen(true)} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Backup e Configurações"><Database size={20} /></button>
         </div>
       </header>
 
-      {/* Grid */}
+      {/* Main Grid */}
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <Calendar 
-            month={selectedMonth} 
-            year={selectedYear} 
-            selectedDate={null} 
-            onSelectDate={handleOpenAddModal}
-            expenses={filteredExpenses}
-          />
-
+        <div className="lg:col-span-2 space-y-8">
+          <Calendar month={selectedMonth} year={selectedYear} selectedDate={null} onSelectDate={handleOpenAddModal} expenses={filteredExpenses} />
+          
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Lançamentos</h2>
-              <button onClick={() => handleOpenAddModal()} className="hidden lg:flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg hover:bg-indigo-700 transition-all uppercase tracking-widest">
-                <Plus size={14} /> Novo
-              </button>
+              <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Lançamentos do Mês</h2>
+              <button onClick={() => handleOpenAddModal()} className="px-4 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg hover:bg-indigo-700 uppercase tracking-widest transition-all">Novo Gasto</button>
             </div>
-            
             <div className="overflow-x-auto">
               <table className="w-full text-left">
-                <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b border-slate-100">
+                <thead className="bg-white text-slate-400 uppercase text-[10px] font-black tracking-widest border-b">
                   <tr>
                     <th className="px-6 py-4">Dia</th>
-                    <th className="px-6 py-4">Categoria</th>
-                    <th className="px-6 py-4">Descrição</th>
+                    <th className="px-6 py-4">Categoria/Nota</th>
                     <th className="px-6 py-4">Valor</th>
                     <th className="px-6 py-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredExpenses.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-300 italic text-sm font-medium">Nenhum registro encontrado.</td></tr>
+                    <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-300 italic">Nenhum registro encontrado.</td></tr>
                   ) : (
-                    filteredExpenses.map((expense) => (
-                      <tr key={expense.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="px-6 py-4 text-sm font-black text-slate-900">{expense.date.split('-')[2]}</td>
+                    filteredExpenses.map(exp => (
+                      <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-black text-slate-900">{exp.date.split('-')[2]}</td>
                         <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-black rounded uppercase w-fit mb-1">{expense.category}</span>
-                            {expense.driveLink && (
-                              <a href={expense.driveLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-500 font-bold hover:underline">
-                                <LinkIcon size={10} /> Link Drive
-                              </a>
-                            )}
-                          </div>
+                          <span className="px-2 py-0.5 bg-slate-100 text-[9px] font-black uppercase rounded text-slate-500 mb-1 block w-fit">{exp.category}</span>
+                          <div className="text-xs text-slate-400 truncate max-w-[150px]">{exp.description || '---'}</div>
+                          {exp.driveLink && (
+                            <a href={exp.driveLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-500 font-black mt-1 flex items-center gap-1 hover:underline">
+                              <ExternalLink size={10} /> Link Drive
+                            </a>
+                          )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-500 max-w-[200px] truncate">{expense.description || '---'}</td>
-                        <td className="px-6 py-4 text-sm font-black text-slate-900">{formatCurrency(expense.amount)}</td>
+                        <td className="px-6 py-4 text-sm font-black text-slate-900">{formatCurrency(exp.amount)}</td>
                         <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleEdit(expense)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"><Edit2 size={14} /></button>
-                            <button onClick={() => handleDelete(expense.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => handleEdit(exp)} className="p-2 text-slate-300 hover:text-indigo-600"><Edit2 size={16}/></button>
+                            <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
                           </div>
                         </td>
                       </tr>
@@ -297,164 +268,223 @@ const App: React.FC = () => {
             </div>
           </section>
         </div>
-
-        <div className="space-y-8">
-           <CategorySummary expenses={filteredExpenses} />
-        </div>
+        <aside>
+          <CategorySummary expenses={filteredExpenses} />
+        </aside>
       </main>
 
-      {/* Modal Nuvem */}
-      {isCloudModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-              <h3 className="text-lg font-black flex items-center gap-2">Configurações de Sincronização</h3>
-              <button onClick={() => setIsCloudModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-700 text-xs font-medium leading-relaxed">
-                Configure um <strong>GitHub Gist</strong> para fazer o backup automático dos seus dados. Isso permite usar o app em múltiplos aparelhos.
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GitHub Classic Token</label>
-                  <input type="password" value={cloudSettings.githubToken} onChange={(e) => setCloudSettings(p => ({ ...p, githubToken: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" placeholder="ghp_xxxx..." />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gist ID</label>
-                  <input type="text" value={cloudSettings.gistId} onChange={(e) => setCloudSettings(p => ({ ...p, gistId: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" placeholder="ID do repositório Gist" />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button onClick={handleCloudLoad} className="flex-1 py-3 bg-emerald-50 text-emerald-600 text-xs font-black rounded-xl hover:bg-emerald-100 uppercase tracking-widest">Baixar Nuvem</button>
-                <button onClick={() => { localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(cloudSettings)); setIsCloudModalOpen(false); }} className="flex-1 py-3 bg-indigo-600 text-white text-xs font-black rounded-xl hover:bg-indigo-700 uppercase tracking-widest">Salvar Locais</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Lançamento */}
+      {/* MODAL DE DESPESA */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg my-8 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-indigo-600 text-white">
-              <h3 className="text-lg font-black">{editingExpense ? 'Editar Lançamento' : 'Novo Lançamento'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors"><X size={20} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 bg-white border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">{editingExpense ? 'Editar Lançamento' : 'Novo Lançamento'}</h3>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20}/></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor do Gasto (R$)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  required 
-                  value={formData.amount || ''} 
-                  onChange={(e) => setFormData(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} 
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-5 py-4 text-3xl font-black text-slate-900 outline-none focus:border-indigo-500 transition-all" 
-                  autoFocus 
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</label>
-                  <select 
-                    value={formData.category} 
-                    onChange={(e) => setFormData(p => ({ ...p, category: e.target.value as Category }))} 
-                    className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500"
-                  >
-                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data do Gasto</label>
+            
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8">
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor da Despesa (R$)</label>
                   <input 
-                    type="date" 
-                    value={formData.date} 
-                    onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} 
-                    className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
+                    type="number" step="0.01" required 
+                    value={formData.amount || ''} 
+                    onChange={(e) => setFormData(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} 
+                    className="w-full bg-transparent text-5xl font-black text-indigo-600 outline-none placeholder-slate-200" 
+                    placeholder="0,00" autoFocus
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</label>
-                <input 
-                  type="text" 
-                  value={formData.description} 
-                  onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} 
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
-                  placeholder="Ex: Compra de remédios" 
-                />
-              </div>
-
-              {/* Campo Link Google Drive */}
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                  <LinkIcon size={10} /> Link do Comprovante (Drive/URL)
-                </label>
-                <input 
-                  type="url" 
-                  value={formData.driveLink} 
-                  onChange={(e) => setFormData(p => ({ ...p, driveLink: e.target.value }))} 
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
-                  placeholder="https://drive.google.com/..." 
-                />
-              </div>
-
-              {/* Upload de Imagem / Câmera */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                  <Camera size={10} /> Anexo de Recibo (Foto/Arquivo)
-                </label>
-                <div className="flex items-center gap-4">
-                  <button 
-                    type="button" 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-50 transition-all"
-                  >
-                    <Upload size={14} /> {formData.receiptImage ? 'Trocar Imagem' : 'Subir Recibo / Abrir Câmera'}
-                  </button>
-                  <input 
-                    ref={fileInputRef}
-                    type="file" 
-                    accept="image/*" 
-                    capture="environment" 
-                    className="hidden" 
-                    onChange={handleCaptureImage}
-                  />
-                </div>
-                {formData.receiptImage && (
-                  <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-slate-200 group">
-                    <img src={formData.receiptImage} alt="Recibo" className="w-full h-full object-cover" />
-                    <button 
-                      type="button"
-                      onClick={() => setFormData(p => ({ ...p, receiptImage: '' }))}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Categoria</label>
+                    <select 
+                      value={formData.category} 
+                      onChange={(e) => setFormData(p => ({ ...p, category: e.target.value as Category }))} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500"
                     >
-                      <X size={10} />
-                    </button>
+                      {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
                   </div>
-                )}
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data</label>
+                    <input 
+                      type="date" required
+                      value={formData.date} 
+                      onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Descrição / Nota</label>
+                  <input 
+                    type="text" 
+                    value={formData.description} 
+                    onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500" 
+                    placeholder="Ex: Farmácia Mensal" 
+                  />
+                </div>
               </div>
 
-              <button 
-                type="submit" 
-                className="w-full py-4 bg-indigo-600 text-white text-xs font-black rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all uppercase tracking-widest pt-5 mt-4"
-              >
-                {editingExpense ? 'Atualizar Registro' : 'Confirmar Lançamento'}
-              </button>
+              <div className="pt-4 border-t border-slate-100">
+                <div className="mb-4">
+                  <h4 className="text-xs font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                    <LinkIcon size={14} /> Comprovantes e Links
+                  </h4>
+                </div>
+
+                <div className="bg-indigo-50/50 border-2 border-dashed border-indigo-100 rounded-2xl p-6 space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                      <LinkIcon size={12} /> Link do Google Drive
+                    </label>
+                    <input 
+                      type="url" 
+                      value={formData.driveLink} 
+                      onChange={(e) => setFormData(p => ({ ...p, driveLink: e.target.value }))} 
+                      className="w-full bg-white border border-indigo-200 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 ring-indigo-500/50 placeholder-indigo-200"
+                      placeholder="https://drive.google.com/..." 
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block flex items-center gap-1">
+                      <Camera size={12} /> Captura de Recibo
+                    </label>
+                    
+                    {!formData.receiptImage ? (
+                      <button 
+                        type="button" 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full py-8 bg-white border-2 border-dashed border-indigo-200 rounded-2xl flex flex-col items-center justify-center gap-3 text-indigo-400 hover:text-indigo-600 hover:bg-white transition-all group"
+                      >
+                        <div className="p-4 bg-indigo-50 rounded-full group-hover:scale-110 transition-transform">
+                          <Camera size={32} />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Tirar Foto do Comprovante</span>
+                      </button>
+                    ) : (
+                      <div className="relative w-full h-48 rounded-2xl overflow-hidden shadow-md border-2 border-white">
+                        <img src={formData.receiptImage} alt="Preview" className="w-full h-full object-cover" />
+                        <button 
+                          type="button" 
+                          onClick={() => setFormData(p => ({ ...p, receiptImage: '' }))}
+                          className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-colors"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                    <input 
+                      ref={fileInputRef}
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment" 
+                      className="hidden" 
+                      onChange={handleCaptureImage}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 sticky bottom-0 bg-white">
+                <button 
+                  type="submit" 
+                  className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-100 uppercase tracking-widest text-xs hover:bg-indigo-700 transition-all active:scale-[0.98]"
+                >
+                  {editingExpense ? 'Confirmar Alterações' : 'Salvar Novo Gasto'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
       {/* FAB Mobile */}
-      {!isReadOnly && (
-        <button onClick={() => handleOpenAddModal()} className="no-print fixed bottom-8 right-8 w-16 h-16 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center lg:hidden z-40 active:scale-90 transition-all">
-          <Plus size={32} />
-        </button>
+      <button 
+        onClick={() => handleOpenAddModal()} 
+        className="no-print lg:hidden fixed bottom-6 right-6 w-16 h-16 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all z-40"
+      >
+        <Plus size={32} />
+      </button>
+
+      {/* Cloud & Backup Modal */}
+      {isCloudModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database size={16} className="text-indigo-400" />
+                <span className="text-xs font-black uppercase tracking-widest">Backup & Dados</span>
+              </div>
+              <button onClick={() => setIsCloudModalOpen(false)} className="hover:text-red-400 transition-colors"><X size={18}/></button>
+            </div>
+            
+            <div className="p-6 space-y-8">
+              {/* BACKUP LOCAL (JSON) */}
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Backup Local (Arquivo JSON)</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={handleExportJSON}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-indigo-50 hover:border-indigo-200 transition-all group"
+                  >
+                    <Download size={20} className="text-slate-400 group-hover:text-indigo-600" />
+                    <span className="text-[9px] font-black uppercase text-slate-500 group-hover:text-indigo-600">Exportar</span>
+                  </button>
+                  <button 
+                    onClick={() => jsonImportRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-emerald-50 hover:border-emerald-200 transition-all group"
+                  >
+                    <Upload size={20} className="text-slate-400 group-hover:text-emerald-600" />
+                    <span className="text-[9px] font-black uppercase text-slate-500 group-hover:text-emerald-600">Importar</span>
+                  </button>
+                  <input 
+                    ref={jsonImportRef}
+                    type="file" 
+                    accept=".json" 
+                    className="hidden" 
+                    onChange={handleImportJSON} 
+                  />
+                </div>
+              </div>
+
+              {/* SINCRONIZAÇÃO NUVEM (GITHUB) */}
+              <div className="space-y-4 pt-2">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Nuvem (GitHub Gist)</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">GitHub Token</label>
+                    <input 
+                      type="password" placeholder="ghp_xxxxxxxxxxxx" 
+                      value={cloudSettings.githubToken} 
+                      onChange={e => setCloudSettings(p => ({...p, githubToken: e.target.value}))} 
+                      className="w-full border border-slate-200 p-3 rounded-xl text-xs outline-none focus:border-indigo-500 bg-slate-50/50" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Gist ID</label>
+                    <input 
+                      type="text" placeholder="ID do Gist" 
+                      value={cloudSettings.gistId} 
+                      onChange={e => setCloudSettings(p => ({...p, gistId: e.target.value}))} 
+                      className="w-full border border-slate-200 p-3 rounded-xl text-xs outline-none focus:border-indigo-500 bg-slate-50/50" 
+                    />
+                  </div>
+                  <button 
+                    onClick={() => { localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(cloudSettings)); setIsCloudModalOpen(false); }} 
+                    className="w-full py-3 bg-indigo-600 text-white font-black rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  >
+                    Salvar Configurações
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
