@@ -3,20 +3,18 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // Essencial para GitHub Pages
+  base: './', // Crucial para que os assets funcionem em subdiretórios como username.github.io/repo/
   build: {
     outDir: 'dist',
+    assetsDir: 'assets',
     minify: 'esbuild',
     rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'lucide-react'],
-        },
+      input: {
+        main: './index.html',
       },
     },
   },
   server: {
     port: 3000,
-    open: true
   }
 });
