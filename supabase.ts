@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// No Supabase, vá em: Project Settings -> API
-// Substitua os valores abaixo pelas informações do seu painel
-const supabaseUrl = 'https://hrkolcjaekmjhpqdolvp.supabase.co';
-const supabaseAnonKey = 'sb_publishable_purb3KB2hDfBR3ECnCvgXw_gTFgL-ny';
+// No Vite (usado pelo Vercel), as variáveis devem começar com VITE_
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn("Configuração do Supabase ausente. Verifique as Environment Variables no Vercel.");
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
