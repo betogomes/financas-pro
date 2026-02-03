@@ -16,7 +16,9 @@ import {
   Settings,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Link as LinkIcon,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Expense, Category, CloudSettings } from './types';
 import { CATEGORIES, MONTHS, STORAGE_KEY } from './constants';
@@ -194,8 +196,8 @@ const App: React.FC = () => {
               <h1 className="text-xl font-black text-slate-800 tracking-tight">Finanças Pro</h1>
               {cloudSettings.gistId && <CheckCircle2 size={16} className="text-emerald-500" />}
             </div>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
-              {cloudSettings.lastSync ? `Sync: ${cloudSettings.lastSync.split(',')[1]}` : 'Offline Mode'}
+            <p className={`text-[10px] font-black uppercase tracking-widest ${cloudSettings.lastSync ? 'text-emerald-500' : 'text-amber-500'}`}>
+              {cloudSettings.lastSync ? `Sync: ${cloudSettings.lastSync.split(',')[1]}` : '● Armazenamento Local (Privado)'}
             </p>
           </div>
         </div>
@@ -270,7 +272,14 @@ const App: React.FC = () => {
                       <tr key={expense.id} className="hover:bg-slate-50 transition-colors group">
                         <td className="px-6 py-4 text-sm font-black text-slate-900">{expense.date.split('-')[2]}</td>
                         <td className="px-6 py-4">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-black rounded uppercase">{expense.category}</span>
+                          <div className="flex flex-col">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-black rounded uppercase w-fit mb-1">{expense.category}</span>
+                            {expense.driveLink && (
+                              <a href={expense.driveLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-500 font-bold hover:underline">
+                                <LinkIcon size={10} /> Link Drive
+                              </a>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-500 max-w-[200px] truncate">{expense.description || '---'}</td>
                         <td className="px-6 py-4 text-sm font-black text-slate-900">{formatCurrency(expense.amount)}</td>
@@ -299,23 +308,26 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-              <h3 className="text-lg font-black flex items-center gap-2">Configurações</h3>
+              <h3 className="text-lg font-black flex items-center gap-2">Configurações de Sincronização</h3>
               <button onClick={() => setIsCloudModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="p-6 space-y-6">
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-700 text-xs font-medium leading-relaxed">
+                Configure um <strong>GitHub Gist</strong> para fazer o backup automático dos seus dados. Isso permite usar o app em múltiplos aparelhos.
+              </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GitHub Token</label>
-                  <input type="password" value={cloudSettings.githubToken} onChange={(e) => setCloudSettings(p => ({ ...p, githubToken: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GitHub Classic Token</label>
+                  <input type="password" value={cloudSettings.githubToken} onChange={(e) => setCloudSettings(p => ({ ...p, githubToken: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" placeholder="ghp_xxxx..." />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gist ID</label>
-                  <input type="text" value={cloudSettings.gistId} onChange={(e) => setCloudSettings(p => ({ ...p, gistId: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" />
+                  <input type="text" value={cloudSettings.gistId} onChange={(e) => setCloudSettings(p => ({ ...p, gistId: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500 transition-all" placeholder="ID do repositório Gist" />
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <button onClick={handleCloudLoad} className="flex-1 py-3 bg-emerald-50 text-emerald-600 text-xs font-black rounded-xl hover:bg-emerald-100 uppercase tracking-widest">Importar</button>
-                <button onClick={() => { localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(cloudSettings)); setIsCloudModalOpen(false); }} className="flex-1 py-3 bg-indigo-600 text-white text-xs font-black rounded-xl hover:bg-indigo-700 uppercase tracking-widest">Salvar</button>
+                <button onClick={handleCloudLoad} className="flex-1 py-3 bg-emerald-50 text-emerald-600 text-xs font-black rounded-xl hover:bg-emerald-100 uppercase tracking-widest">Baixar Nuvem</button>
+                <button onClick={() => { localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(cloudSettings)); setIsCloudModalOpen(false); }} className="flex-1 py-3 bg-indigo-600 text-white text-xs font-black rounded-xl hover:bg-indigo-700 uppercase tracking-widest">Salvar Locais</button>
               </div>
             </div>
           </div>
@@ -324,35 +336,114 @@ const App: React.FC = () => {
 
       {/* Modal Lançamento */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg my-8 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-indigo-600 text-white">
-              <h3 className="text-lg font-black">{editingExpense ? 'Editar' : 'Novo Lançamento'}</h3>
+              <h3 className="text-lg font-black">{editingExpense ? 'Editar Lançamento' : 'Novo Lançamento'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-5">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor (R$)</label>
-                <input type="number" step="0.01" required value={formData.amount || ''} onChange={(e) => setFormData(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-5 py-4 text-3xl font-black text-slate-900 outline-none focus:border-indigo-500 transition-all" autoFocus />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor do Gasto (R$)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  required 
+                  value={formData.amount || ''} 
+                  onChange={(e) => setFormData(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} 
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-5 py-4 text-3xl font-black text-slate-900 outline-none focus:border-indigo-500 transition-all" 
+                  autoFocus 
+                />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</label>
-                  <select value={formData.category} onChange={(e) => setFormData(p => ({ ...p, category: e.target.value as Category }))} className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none">
+                  <select 
+                    value={formData.category} 
+                    onChange={(e) => setFormData(p => ({ ...p, category: e.target.value as Category }))} 
+                    className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500"
+                  >
                     {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data</label>
-                  <input type="date" value={formData.date} onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none" />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data do Gasto</label>
+                  <input 
+                    type="date" 
+                    value={formData.date} 
+                    onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} 
+                    className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
+                  />
                 </div>
               </div>
+
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</label>
-                <input type="text" value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" placeholder="Ex: Mercado do mês" />
+                <input 
+                  type="text" 
+                  value={formData.description} 
+                  onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} 
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
+                  placeholder="Ex: Compra de remédios" 
+                />
               </div>
-              <button type="submit" className="w-full py-4 bg-indigo-600 text-white text-xs font-black rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all uppercase tracking-widest pt-5">
-                Confirmar Lançamento
+
+              {/* Campo Link Google Drive */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                  <LinkIcon size={10} /> Link do Comprovante (Drive/URL)
+                </label>
+                <input 
+                  type="url" 
+                  value={formData.driveLink} 
+                  onChange={(e) => setFormData(p => ({ ...p, driveLink: e.target.value }))} 
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1 outline-none focus:border-indigo-500" 
+                  placeholder="https://drive.google.com/..." 
+                />
+              </div>
+
+              {/* Upload de Imagem / Câmera */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                  <Camera size={10} /> Anexo de Recibo (Foto/Arquivo)
+                </label>
+                <div className="flex items-center gap-4">
+                  <button 
+                    type="button" 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-50 transition-all"
+                  >
+                    <Upload size={14} /> {formData.receiptImage ? 'Trocar Imagem' : 'Subir Recibo / Abrir Câmera'}
+                  </button>
+                  <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    className="hidden" 
+                    onChange={handleCaptureImage}
+                  />
+                </div>
+                {formData.receiptImage && (
+                  <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-slate-200 group">
+                    <img src={formData.receiptImage} alt="Recibo" className="w-full h-full object-cover" />
+                    <button 
+                      type="button"
+                      onClick={() => setFormData(p => ({ ...p, receiptImage: '' }))}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button 
+                type="submit" 
+                className="w-full py-4 bg-indigo-600 text-white text-xs font-black rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all uppercase tracking-widest pt-5 mt-4"
+              >
+                {editingExpense ? 'Atualizar Registro' : 'Confirmar Lançamento'}
               </button>
             </form>
           </div>
