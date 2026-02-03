@@ -1,6 +1,6 @@
 import { Category, MonthOption } from './types';
 
-// Finance Pro Constants - Build Ref: 1.1.5
+// Finance Pro Constants - Build Ref: 1.1.6
 export const CATEGORIES: Category[] = [
   'Farmácias',
   'Material Hospitalar',
