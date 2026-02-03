@@ -7,7 +7,7 @@ import { CATEGORIES, MONTHS } from './constants';
 import { formatCurrency, exportToJSON } from './utils';
 import Calendar from './components/Calendar';
 import CategorySummary from './components/CategorySummary';
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const App: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -15,8 +15,8 @@ const App: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [error, setError] = useState<string | null>(isSupabaseConfigured ? null : "Configurações do Supabase ausentes.");
 
   const [formData, setFormData] = useState<Omit<Expense, 'id'>>({
     date: new Date().toISOString().split('T')[0],
@@ -28,10 +28,8 @@ const App: React.FC = () => {
   });
 
   const fetchExpenses = async () => {
-    // Se não houver URL configurada, nem tenta buscar para evitar erro 400 no console
-    if (!import.meta.env.VITE_SUPABASE_URL) {
+    if (!isSupabaseConfigured) {
       setLoading(false);
-      setError("Chaves do Supabase não configuradas no Vercel.");
       return;
     }
 
@@ -46,17 +44,17 @@ const App: React.FC = () => {
       if (sbError) throw sbError;
       if (data) setExpenses(data);
     } catch (err: any) {
-      console.error("Erro Supabase:", err);
-      setError(err.message || "Erro de conexão");
-      const saved = localStorage.getItem('finance_pro_data');
-      if (saved) setExpenses(JSON.parse(saved));
+      console.error("Erro ao carregar:", err);
+      setError(err.message || "Erro de conexão com o banco");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchExpenses();
+    if (isSupabaseConfigured) {
+      fetchExpenses();
+    }
   }, []);
 
   const filteredExpenses = useMemo(() => {
@@ -69,8 +67,10 @@ const App: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!import.meta.env.VITE_SUPABASE_URL) return alert("Erro: Supabase não configurado.");
-
+    if (!isSupabaseConfigured) {
+      alert("Supabase não configurado.");
+      return;
+    }
     try {
       if (editingExpense) {
         const { error: err } = await supabase.from('expenses').update(formData).eq('id', editingExpense.id);
@@ -83,11 +83,12 @@ const App: React.FC = () => {
       setIsModalOpen(false);
       setEditingExpense(null);
     } catch (err) {
-      alert("Erro ao salvar. Verifique a tabela e as permissões no Supabase.");
+      alert("Erro ao salvar. Verifique as configurações e políticas RLS do Supabase.");
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!isSupabaseConfigured) return;
     if (!window.confirm('Excluir permanentemente?')) return;
     try {
       const { error: err } = await supabase.from('expenses').delete().eq('id', id);
@@ -102,28 +103,28 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-xs font-black uppercase tracking-widest text-indigo-600">Sincronizando...</p>
+        <p className="text-xs font-black uppercase tracking-widest text-indigo-600">Sincronizando Dados...</p>
       </div>
     );
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-      {error && (
-        <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-3 text-red-600 text-xs font-bold">
+      {!isSupabaseConfigured && (
+        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center gap-3 text-amber-800 text-xs font-bold">
           <AlertCircle size={18} />
-          <p>Configuração Pendente: {error}</p>
+          <p>Aviso: Supabase não configurado. Adicione VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY nas variáveis de ambiente do seu deploy.</p>
         </div>
       )}
 
       <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-100">
+          <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg">
             <CreditCard size={24} />
           </div>
           <div>
-            <h1 className="text-lg font-black text-slate-800">Finanças Pro</h1>
-            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Gestão Mensal Cloud</p>
+            <h1 className="text-lg font-black text-slate-800 tracking-tight">Finanças Pro</h1>
+            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Gestor em Tempo Real</p>
           </div>
         </div>
 
@@ -133,7 +134,7 @@ const App: React.FC = () => {
             <span className="px-4 text-xs font-black min-w-[120px] text-center uppercase">{MONTHS[selectedMonth].label} {selectedYear}</span>
             <button onClick={() => setSelectedMonth(m => m === 11 ? 0 : m + 1)} className="p-2 hover:bg-white rounded-lg transition-colors"><ChevronRight size={16} /></button>
           </div>
-          <button onClick={() => exportToJSON(expenses)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 transition-colors shadow-sm"><Download size={18} /></button>
+          <button onClick={() => exportToJSON(expenses)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 shadow-sm transition-colors"><Download size={18} /></button>
         </div>
       </header>
 
@@ -153,18 +154,14 @@ const App: React.FC = () => {
           
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Lançamentos do Mês</h2>
-              <button onClick={() => {
-                setEditingExpense(null);
-                setFormData({date: new Date().toISOString().split('T')[0], category: 'Outros', amount: 0, description: '', driveLink: '', receiptImage: ''});
-                setIsModalOpen(true);
-              }} className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-lg hover:bg-indigo-700 transition-colors uppercase tracking-widest">Novo Item</button>
+              <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fluxo de Caixa</h2>
+              <button onClick={() => setIsModalOpen(true)} className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-lg hover:bg-indigo-700 transition-colors uppercase tracking-widest">Novo Registro</button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <tbody className="divide-y divide-slate-50">
                   {filteredExpenses.length === 0 ? (
-                    <tr><td className="p-12 text-center text-slate-400 font-medium italic text-sm">Nenhum dado encontrado.</td></tr>
+                    <tr><td className="p-12 text-center text-slate-400 font-medium italic text-sm">Nenhum lançamento encontrado.</td></tr>
                   ) : filteredExpenses.map(exp => (
                     <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4 text-xs font-black text-slate-400 w-16">{exp.date.split('-')[2]}</td>
@@ -175,8 +172,8 @@ const App: React.FC = () => {
                       <td className="px-6 py-4 text-sm font-black text-slate-900">{formatCurrency(exp.amount)}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-1">
-                          <button onClick={() => { setEditingExpense(exp); setFormData(exp); setIsModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><Edit2 size={14}/></button>
-                          <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                          <button onClick={() => { setEditingExpense(exp); setFormData(exp); setIsModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"><Edit2 size={14}/></button>
+                          <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>
                         </div>
                       </td>
                     </tr>
@@ -194,12 +191,12 @@ const App: React.FC = () => {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
              <form onSubmit={handleSubmit} className="p-8 space-y-6">
                 <div className="flex justify-between items-center mb-2">
-                  <h3 className="font-black uppercase tracking-widest text-slate-400 text-[10px]">Formulário de Registro</h3>
+                  <h3 className="font-black uppercase tracking-widest text-slate-400 text-[10px]">Dados do Lançamento</h3>
                   <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-300 hover:text-slate-600"><X size={20}/></button>
                 </div>
                 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Valor</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Valor (R$)</label>
                   <input 
                     type="number" step="0.01" required autoFocus
                     value={formData.amount || ''} 
@@ -215,7 +212,7 @@ const App: React.FC = () => {
                     <select 
                       value={formData.category} 
                       onChange={e => setFormData(p => ({...p, category: e.target.value as Category}))}
-                      className="w-full bg-slate-50 p-3 rounded-xl font-bold text-xs border border-slate-100"
+                      className="w-full bg-slate-50 p-3 rounded-xl font-bold text-xs border border-slate-100 focus:ring-2 focus:ring-indigo-100 outline-none"
                     >
                       {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -231,17 +228,17 @@ const App: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Descrição Breve</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Descrição</label>
                   <input 
                     type="text" placeholder="Ex: Farmácia São João" 
                     value={formData.description} 
                     onChange={e => setFormData(p => ({...p, description: e.target.value}))}
-                    className="w-full bg-slate-50 p-3 rounded-xl font-bold text-xs border border-slate-100"
+                    className="w-full bg-slate-50 p-3 rounded-xl font-bold text-xs border border-slate-100 focus:ring-2 focus:ring-indigo-100 outline-none"
                   />
                 </div>
 
-                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                  {editingExpense ? 'Atualizar Dados' : 'Salvar na Nuvem'}
+                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
+                  {editingExpense ? 'Atualizar' : 'Salvar na Nuvem'}
                 </button>
              </form>
           </div>
